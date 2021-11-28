@@ -75,7 +75,7 @@ class FPLReminderBot:
             return ValueError("Invalid reminder type - expected 'day' or 'hour'")
 
     def run_process(self):
-        """Bring all functions together to run the daily process"""
+        """Bring all functions together to run the daily process, including scheduling hour reminder"""
 
         # Check whether there's a deadline today
         today_gw = [(gw_id, self.deadlines[gw_id]) for gw_id in self.deadlines if
@@ -89,6 +89,7 @@ class FPLReminderBot:
         deadline_ts = deadline.strftime('%I:%M%p')
         if deadline < self.current_date:
             logging.info(f'Transfer deadline today has already passed ({deadline_ts}) - taking no action')
+            return
 
         logging.info(f"Gameweek {gw_id} deadline is today at {deadline_ts}")
 
