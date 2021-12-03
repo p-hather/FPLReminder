@@ -79,13 +79,13 @@ class FPLReminderBot:
 
         # Check whether there's a deadline today
         today_gw = [(gw_id, self.deadlines[gw_id]) for gw_id in self.deadlines if
-                    self.deadlines[gw_id].date() == self.current_date.date()][0]  # Assumes only one deadline per day
+                    self.deadlines[gw_id].date() == self.current_date.date()]
 
         if not today_gw:
             logging.info('No gameweek transfer deadlines today')
             return
 
-        gw_id, deadline = today_gw
+        gw_id, deadline = today_gw[0]  # Assumes only one deadline per day
         deadline_ts = deadline.strftime('%I:%M%p')
         if deadline < self.current_date:
             logging.info(f'Transfer deadline today has already passed ({deadline_ts}) - taking no action')
