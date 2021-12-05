@@ -7,7 +7,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 
 load_dotenv()
-WEBHOOK_URL = os.getenv('WEBHOOK')
+WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK')
+LEAGUE_ID = os.getenv('FPL_LEAGUE_ID')
 
 logging.basicConfig(level=logging.INFO, filename="fpl.log", filemode="a+",
                     format="%(asctime)-15s %(levelname)-8s %(message)s")
@@ -34,8 +35,12 @@ class FPLReminderBot:
     def __init__(self):
         self.bs_url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
         self.events = get_json(self.bs_url)['events']
+        self.current_gw = None
         self.deadlines = self.get_deadlines()
-        self.current_date = datetime.today()
+        self.league_id = LEAGUE_ID
+        self.players = self.get_players()
+        self.get_transfers_attempts = 0
+        self.current_date = datetime.today() - timedelta(days=1, hours=14)
         self.webhook_url = WEBHOOK_URL
         self.scheduler = BlockingScheduler(timezone='Europe/London')
 
@@ -50,7 +55,73 @@ class FPLReminderBot:
                 dt = datetime.strptime(e['deadline_time'], dt_format)
                 dl[e['id']] = dt
         return dl
+    
+    def get_players(self):
+        all_player_data = get_json(self.bs_url)['elements']
+        return {player['id']: {'web_name': player['web_name'], 'team': player['team'], 
+            'element_type': player['element_type']} for player in all_player_data}  # element_type = team id
+            # Note only 'web_name' is currently used
+    
+    def get_team(self, id, gw):
+        url = f'https://fantasy.premierleague.com/api/entry/{id}/event/{gw}/picks/'
+        data = get_json(url)
+        return {pick['element'] for pick in data['picks']}  # Return a 'set'
 
+    def get_transfers(self):
+        self.get_transfers_attempts += 1
+
+        league_data = get_json(f'https://fantasy.premierleague.com/api/leagues-classic/{self.league_id}/standings/')
+        league_name = league_data['league']['name']
+        logging.info(f"Looking at league '{league_name}' transfers")
+
+        transfers = []
+
+        for team in league_data['standings']['results']:
+            team_name = team["entry_name"]
+            team_id = team["entry"]
+            logging.info(f"Fetching team '{team_name}'")
+
+            try:
+                current_team = self.get_team(team_id, self.current_gw)
+            except requests.models.HTTPError as current_gw_exc:
+                logging.info(current_gw_exc)
+
+                if self.get_transfers_attempts == 3:
+                    logging.info(f'Failed to fetch current game week on third attempt - cancelling job')
+                    return
+
+                logging.info('Possibly too early to fetch current game week - try again later')
+                # TODO schedule for an hours time
+                break  # Exit loop
+            
+            try:
+                previous_team = self.get_team(team_id, self.current_gw-1)
+            except requests.models.HTTPError as previous_gw_exc:
+                logging.info(previous_gw_exc)
+                logging.info('Previous gameweek not found for team - skipping')
+                continue  # Move to next iteration
+
+            transfers_out = previous_team-current_team
+            transfers_in = current_team-previous_team
+            
+            if len(transfers_out)+len(transfers_out) == 0:
+                print('No transfers found for gameweek')
+                continue  # Move to next iteration
+
+            # TODO replace arrows with emoji
+            transfers_out_str = '\n'.join([self.players[player_id]['web_name']+' :x:' for player_id in transfers_out])
+            transfers_in_str = '\n'.join([self.players[player_id]['web_name']+' :white_check_mark:' for player_id in transfers_in])
+            text = '\n'.join([team_name, transfers_out_str, transfers_in_str])
+            transfers.append(text)
+
+        if not transfers:
+            logging.info('No gameweek transfers found')
+            return
+        
+        transfers_str = '\n'.join(transfers)
+        message = f"**Gameweek {self.current_gw} transfers**\n{transfers_str}"
+        self.webhook_message(message)
+    
     def webhook_message(self, message):
         """Send POST requests to Discord webhook URL"""
 
@@ -59,20 +130,23 @@ class FPLReminderBot:
         response.raise_for_status()  # Raises an exception if the request failed
         logging.info('Message sent successfully')  # Response successful if raise_for_status() avoids exception
 
-    def send_reminder(self, reminder_type, gw_id, deadline):
+    def send_reminder(self, reminder_type, deadline):
         """Orchestrate reminders and send messages to webhook function"""
         logging.info(f"Attempting to send '{reminder_type}' reminder message")
 
         if reminder_type == 'day':
             deadline_time = deadline.strftime('%-I:%M%p')
-            message = f":alarm_clock: Gameweek {gw_id} starts today - transfer deadline is {deadline_time}"
+            message = f":alarm_clock: Gameweek {self.current_gw} starts today - transfer deadline is {deadline_time}"
             self.webhook_message(message)
         elif reminder_type == 'hour':
-            message = f":warning: Warning - one hour until Gameweek {gw_id} deadline"
+            message = f":warning: Warning - one hour until Gameweek {self.current_gw} deadline"
             self.webhook_message(message)
             self.scheduler.shutdown(wait=False)
         else:
             return ValueError("Invalid reminder type - expected 'day' or 'hour'")
+    
+    def send_transfers(self):
+        pass
 
     def run_process(self):
         """Bring all functions together to run the daily process, including scheduling hour reminder"""
@@ -85,25 +159,32 @@ class FPLReminderBot:
             logging.info('No gameweek transfer deadlines today')
             return
 
-        gw_id, deadline = today_gw[0]  # Assumes only one deadline per day
+        self.current_gw, deadline = today_gw[0]  # Assumes only one deadline per day
         deadline_ts = deadline.strftime('%I:%M%p')
         if deadline < self.current_date:
             logging.info(f'Transfer deadline today has already passed ({deadline_ts}) - taking no action')
             return
 
-        logging.info(f"Gameweek {gw_id} deadline is today at {deadline_ts}")
+        logging.info(f"Gameweek {self.current_gw} deadline is today at {deadline_ts}")
 
         # Day reminder
-        self.send_reminder('day', gw_id, deadline)
+        self.send_reminder('day', deadline)
 
         # Hour reminder
         hour_remind_time = deadline - timedelta(hours=1)
         logging.info(f"Scheduling hour reminder for {hour_remind_time.strftime('%I:%M%p')}")
-        self.scheduler.add_job(self.send_reminder, 'date',
-                               run_date=hour_remind_time, args=['hour', gw_id, deadline])
-        self.scheduler.start()  # Scheduler is shutdown in send_reminder function
+        # self.scheduler.add_job(self.send_reminder, 'date',
+        #                        run_date=hour_remind_time, args=['hour', self.current_gw, deadline])
+        
+        # # TODO get transfers data
+        self.get_transfers()
+
+        # self.scheduler.start()  # Scheduler is shutdown in send_reminder function
 
 
 if __name__ == '__main__':
     fpl = FPLReminderBot()
     fpl.run_process()
+
+# :white_check_mark:
+# :x:
