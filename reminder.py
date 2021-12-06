@@ -3,6 +3,7 @@ import os
 import logging
 import requests
 from datetime import datetime, timedelta
+from time import sleep
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 
@@ -40,7 +41,7 @@ class FPLReminderBot:
         self.league_id = LEAGUE_ID
         self.players = self.get_players()
         self.get_transfers_attempts = 0
-        self.current_date = datetime.today() - timedelta(days=1, hours=14)
+        self.current_date = datetime.today() + timedelta(days = 4)
         self.webhook_url = WEBHOOK_URL
         self.scheduler = BlockingScheduler(timezone='Europe/London')
 
@@ -66,34 +67,45 @@ class FPLReminderBot:
         url = f'https://fantasy.premierleague.com/api/entry/{id}/event/{gw}/picks/'
         data = get_json(url)
         return {pick['element'] for pick in data['picks']}  # Return a 'set'
+    
+    def webhook_message(self, message):
+        """Send POST requests to Discord webhook URL"""
 
-    def get_transfers(self):
+        data = {"content": message}
+        response = requests.post(self.webhook_url, data=data)
+        response.raise_for_status()  # Raises an exception if the request failed
+        logging.info('Message sent successfully')  # Response successful if raise_for_status() avoids exception
+
+    def send_transfers(self):
+        self.scheduler.shutdown()  # Shut down scheduler as not required from this point
+
         self.get_transfers_attempts += 1
+        logging.info(f'Attempting to fetch transfers data - attempt {self.get_transfers_attempts}/3')
 
         league_data = get_json(f'https://fantasy.premierleague.com/api/leagues-classic/{self.league_id}/standings/')
         league_name = league_data['league']['name']
-        logging.info(f"Looking at league '{league_name}' transfers")
+        logging.info(f"Looking at league '{league_name}'")
 
         transfers = []
 
         for team in league_data['standings']['results']:
             team_name = team["entry_name"]
             team_id = team["entry"]
-            logging.info(f"Fetching team '{team_name}'")
+            logging.info(f"Fetching transfers for team '{team_name}'")
 
             try:
                 current_team = self.get_team(team_id, self.current_gw)
             except requests.models.HTTPError as current_gw_exc:
                 logging.info(current_gw_exc)
 
-                if self.get_transfers_attempts == 3:
+                if self.get_transfers_attempts < 3:
+                    logging.info('Possibly too early to fetch current game week - will try again in 1 hour')
+                    sleep(3600)  # Wait an hour, then try again
+                    return self.get_transfers()
+                else:
                     logging.info(f'Failed to fetch current game week on third attempt - cancelling job')
-                    return
+                    return  # Exit process
 
-                logging.info('Possibly too early to fetch current game week - try again later')
-                # TODO schedule for an hours time
-                break  # Exit loop
-            
             try:
                 previous_team = self.get_team(team_id, self.current_gw-1)
             except requests.models.HTTPError as previous_gw_exc:
@@ -108,10 +120,9 @@ class FPLReminderBot:
                 print('No transfers found for gameweek')
                 continue  # Move to next iteration
 
-            # TODO replace arrows with emoji
-            transfers_out_str = '\n'.join([self.players[player_id]['web_name']+' :x:' for player_id in transfers_out])
-            transfers_in_str = '\n'.join([self.players[player_id]['web_name']+' :white_check_mark:' for player_id in transfers_in])
-            text = '\n'.join([team_name, transfers_out_str, transfers_in_str])
+            transfers_out_str = ':x: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_out])
+            transfers_in_str = ':white_check_mark: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_in])
+            text = '\n'.join([f"**{team_name}**", transfers_out_str, transfers_in_str])
             transfers.append(text)
 
         if not transfers:
@@ -119,16 +130,8 @@ class FPLReminderBot:
             return
         
         transfers_str = '\n'.join(transfers)
-        message = f"**Gameweek {self.current_gw} transfers**\n{transfers_str}"
+        message = f":wave: Gameweek {self.current_gw} transfers\n{transfers_str}"
         self.webhook_message(message)
-    
-    def webhook_message(self, message):
-        """Send POST requests to Discord webhook URL"""
-
-        data = {"content": message}
-        response = requests.post(self.webhook_url, data=data)
-        response.raise_for_status()  # Raises an exception if the request failed
-        logging.info('Message sent successfully')  # Response successful if raise_for_status() avoids exception
 
     def send_reminder(self, reminder_type, deadline):
         """Orchestrate reminders and send messages to webhook function"""
@@ -144,9 +147,6 @@ class FPLReminderBot:
             self.scheduler.shutdown(wait=False)
         else:
             return ValueError("Invalid reminder type - expected 'day' or 'hour'")
-    
-    def send_transfers(self):
-        pass
 
     def run_process(self):
         """Bring all functions together to run the daily process, including scheduling hour reminder"""
@@ -173,18 +173,17 @@ class FPLReminderBot:
         # Hour reminder
         hour_remind_time = deadline - timedelta(hours=1)
         logging.info(f"Scheduling hour reminder for {hour_remind_time.strftime('%I:%M%p')}")
-        # self.scheduler.add_job(self.send_reminder, 'date',
-        #                        run_date=hour_remind_time, args=['hour', self.current_gw, deadline])
+        self.scheduler.add_job(self.send_reminder, 'date',
+                               run_date=hour_remind_time, args=['hour', deadline])
         
-        # # TODO get transfers data
-        self.get_transfers()
-
-        # self.scheduler.start()  # Scheduler is shutdown in send_reminder function
+        # Transfers notification
+        transfers_send_time = deadline + timedelta(hours=1, minutes=30)
+        logging.info(f"Scheduling transfers send for {transfers_send_time.strftime('%I:%M%p')}")
+        self.scheduler.add_job(self.send_transfers, 'date', run_date=transfers_send_time)
+        
+        self.scheduler.start()  # Scheduler is shutdown in send_transfers function
 
 
 if __name__ == '__main__':
     fpl = FPLReminderBot()
     fpl.run_process()
-
-# :white_check_mark:
-# :x:
