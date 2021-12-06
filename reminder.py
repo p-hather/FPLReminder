@@ -27,8 +27,11 @@ class FPLReminderBot:
     - Day reminder (sent when the script is run if there's a transfer that day)
     - Hour reminder (sent an hour before the deadline)
 
-    Reminders are sent to Discord via POST request to a webhook URL (stored in a .env
-    file in the same directory as the code)
+    Also sends Gameweek transfers data for each team in a given league.
+
+    Messages are sent to Discord via POST request to a webhook URL (stored in a .env
+    file in the same directory as the code). FPL League ID also needs to be provided
+    in the .env file.
 
     Recommended cron schedule - 0 8 * * *
     """
@@ -58,19 +61,22 @@ class FPLReminderBot:
         return dl
     
     def get_players(self):
+        """GET data on all current FPL players from the API"""
+        logging.info('Calling FPL API to get players data')
+
         all_player_data = get_json(self.bs_url)['elements']
         return {player['id']: {'web_name': player['web_name'], 'team': player['team'], 
             'element_type': player['element_type']} for player in all_player_data}  # element_type = team id
             # Note only 'web_name' is currently used
     
     def get_team(self, id, gw):
+        """GET all players on a given FPL team for a given Gameweek"""
         url = f'https://fantasy.premierleague.com/api/entry/{id}/event/{gw}/picks/'
         data = get_json(url)
         return {pick['element'] for pick in data['picks']}  # Return a 'set'
     
     def webhook_message(self, message):
         """Send POST requests to Discord webhook URL"""
-
         data = {"content": message}
         response = requests.post(self.webhook_url, data=data)
         response.raise_for_status()  # Raises an exception if the request failed
