@@ -3,3 +3,4 @@ venv/
 !example.env
 .idea/
 *.log
+dev/
