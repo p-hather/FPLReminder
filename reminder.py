@@ -77,6 +77,7 @@ class FPLReminderBot:
         logging.info('Message sent successfully')  # Response successful if raise_for_status() avoids exception
 
     def send_transfers(self):
+        """Get Gameweek players transfer data for given FPL league ID, and send to the Discord webhook"""
         self.scheduler.shutdown()  # Shut down scheduler as not required from this point
 
         self.get_transfers_attempts += 1
