@@ -124,7 +124,7 @@ class FPLReminderBot:
             transfers_in = current_team-previous_team
             
             if len(transfers_out)+len(transfers_out) == 0:
-                print('No transfers found for gameweek')
+                logging.info('No transfers found for gameweek')
                 continue  # Move to next iteration
 
             transfers_out_str = ':x: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_out])
@@ -151,7 +151,6 @@ class FPLReminderBot:
         elif reminder_type == 'hour':
             message = f":warning: Warning - one hour until Gameweek {self.current_gw} deadline"
             self.webhook_message(message)
-            self.scheduler.shutdown(wait=False)
         else:
             return ValueError("Invalid reminder type - expected 'day' or 'hour'")
 
