@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 import os
 import logging
+import pathlib
 import requests
 from datetime import datetime, timedelta
 from time import sleep
@@ -11,7 +12,9 @@ load_dotenv()
 WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK')
 LEAGUE_ID = os.getenv('FPL_LEAGUE_ID')
 
-logging.basicConfig(level=logging.INFO, filename="fpl.log", filemode="a+",
+dir = pathlib.Path(__file__).parent.resolve()
+log_fp = pathlib.Path(dir).joinpath('fpl.log')
+logging.basicConfig(level=logging.INFO, filename=log_fp, filemode="a+",
                     format="%(asctime)-15s %(levelname)-8s %(message)s")
 
 
