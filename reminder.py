@@ -3,7 +3,7 @@ import os
 import logging
 import pathlib
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from time import sleep
 from apscheduler.schedulers.blocking import BlockingScheduler
 
@@ -42,6 +42,7 @@ class FPLReminderBot:
     def __init__(self):
         self.bs_url = 'https://fantasy.premierleague.com/api/bootstrap-static/'
         self.events = get_json(self.bs_url)['events']
+        self.local_tz = datetime.now().astimezone().tzinfo
         self.current_gw = None
         self.deadlines = self.get_deadlines()
         self.league_id = LEAGUE_ID
@@ -59,8 +60,10 @@ class FPLReminderBot:
         dl = {}
         for e in self.events:
             if not e['finished']:
-                dt = datetime.strptime(e['deadline_time'], dt_format)
-                dl[e['id']] = dt
+                # Convert deadlines to local timezone
+                dt_utc = datetime.strptime(e['deadline_time'], dt_format)
+                dt_local = dt_utc.replace(tzinfo=timezone.utc).astimezone(tz=self.local_tz)
+                dl[e['id']] = dt_local
         return dl
     
     def get_players(self):
