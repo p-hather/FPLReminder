@@ -48,7 +48,7 @@ class FPLReminderBot:
         self.league_id = LEAGUE_ID
         self.players = self.get_players()
         self.get_transfers_attempts = 0
-        self.current_date = datetime.today()
+        self.current_date = datetime.today().replace(tzinfo=self.local_tz)
         self.webhook_url = WEBHOOK_URL
         self.scheduler = BlockingScheduler(timezone='Europe/London')
 
