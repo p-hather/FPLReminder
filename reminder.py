@@ -79,7 +79,12 @@ class FPLReminderBot:
         """GET all players on a given FPL team for a given Gameweek"""
         url = f'https://fantasy.premierleague.com/api/entry/{id}/event/{gw}/picks/'
         data = get_json(url)
-        return {pick['element'] for pick in data['picks']}  # Return a 'set'
+        picks = {pick['element'] for pick in data['picks']}
+        active_chip = data['active_chip']
+        return {
+            "active_chip": active_chip,
+            "picks": picks
+        }
     
     def webhook_message(self, message):
         """Send POST requests to Discord webhook URL"""
@@ -125,17 +130,37 @@ class FPLReminderBot:
                 logging.info(previous_gw_exc)
                 logging.info('Previous gameweek not found for team - skipping')
                 continue  # Move to next iteration
+            
+            current_picks = current_team["picks"]
+            previous_picks = previous_team["picks"]
 
-            transfers_out = previous_team-current_team
-            transfers_in = current_team-previous_team
+            transfers_out = previous_picks-current_picks
+            transfers_in = current_picks-previous_picks
             
             if len(transfers_out)+len(transfers_out) == 0:
                 logging.info('No transfers found for gameweek')
                 continue  # Move to next iteration
 
+            # Check whether a Wildcard or Free Hit chip has been played
+            current_chip = current_team["active_chip"]
+            previous_chip = previous_team["active_chip"]
+
+            chip_values = None
+            if current_chip == 'wildcard':
+                chip_values = ('Wildcard', 'current')
+            elif current_chip == 'freehit':
+                chip_values = ('Free Hit', 'current')
+            elif previous_chip == 'freehit':
+                chip_values = ('Free Hit', 'previous')
+            
             transfers_out_str = ':x: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_out])
             transfers_in_str = ':white_check_mark: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_in])
             text = '\n'.join([f"**{team_name}**", transfers_out_str, transfers_in_str])
+
+            if chip_values:
+                chip_str = '\n*{} active in {} gameweek*'.format(chip_values[0], chip_values[1])
+                text += chip_str
+        
             transfers.append(text)
 
         if not transfers:
