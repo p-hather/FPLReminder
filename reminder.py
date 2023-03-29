@@ -79,8 +79,9 @@ class FPLReminderBot:
         """GET all players on a given FPL team for a given Gameweek"""
         url = f'https://fantasy.premierleague.com/api/entry/{id}/event/{gw}/picks/'
         data = get_json(url)
-        picks = {pick['element'] for pick in data['picks']}
         active_chip = data['active_chip']
+        keys = ['element', 'is_captain', 'is_vice_captain']
+        picks = [{k: pick.get(k, None) for k in keys} for pick in data['picks']]
         return {
             "active_chip": active_chip,
             "picks": picks
@@ -131,8 +132,8 @@ class FPLReminderBot:
                 logging.info('Previous gameweek not found for team - skipping')
                 continue  # Move to next iteration
             
-            current_picks = current_team["picks"]
-            previous_picks = previous_team["picks"]
+            current_picks = {pick["element"] for pick in current_team["picks"]}
+            previous_picks = {pick["element"] for pick in previous_team["picks"]}
 
             transfers_out = previous_picks-current_picks
             transfers_in = current_picks-previous_picks
@@ -140,6 +141,9 @@ class FPLReminderBot:
             if len(transfers_out)+len(transfers_out) == 0:
                 logging.info('No transfers found for gameweek')
                 continue  # Move to next iteration
+
+            captain = next((pick["element"] for pick in current_team["picks"] if pick["is_captain"]), None)
+            vice_captain = next((pick["element"] for pick in current_team["picks"] if pick["is_vice_captain"]), None)
 
             # Check whether a Wildcard or Free Hit chip has been played
             current_chip = current_team["active_chip"]
@@ -155,7 +159,9 @@ class FPLReminderBot:
             
             transfers_out_str = ':x: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_out])
             transfers_in_str = ':white_check_mark: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_in])
-            text = '\n'.join([f"**{team_name}**", transfers_out_str, transfers_in_str])
+            text = '\n'.join([
+                f"**{team_name}**", transfers_out_str, transfers_in_str,
+                f':regional_indicator_c: {self.players[captain]["web_name"]} (C), {self.players[vice_captain]["web_name"]} (VC)'])
 
             if chip_values:
                 chip_str = '\n*{} active in {} gameweek*'.format(chip_values[0], chip_values[1])
