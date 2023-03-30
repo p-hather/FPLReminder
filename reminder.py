@@ -140,10 +140,6 @@ class FPLReminderBot:
 
             transfers_out = previous_picks-current_picks
             transfers_in = current_picks-previous_picks
-            
-            if len(transfers_out)+len(transfers_out) == 0:
-                logging.info('No transfers found for gameweek')
-                continue  # Move to next iteration
 
             captain = next((pick["element"] for pick in current_team["picks"] if pick["is_captain"]), None)
             vice_captain = next((pick["element"] for pick in current_team["picks"] if pick["is_vice_captain"]), None)
@@ -160,16 +156,22 @@ class FPLReminderBot:
             elif previous_chip == 'freehit':
                 chip_values = ('Free Hit', 'previous')
             
-            transfers_out_str = ':x: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_out])
-            transfers_in_str = ':white_check_mark: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_in])
-            text = '\n'.join([
-                f"**{team_name}**", transfers_out_str, transfers_in_str,
-                f':regional_indicator_c: {self.players[captain]["web_name"]} (C), {self.players[vice_captain]["web_name"]} (VC)'])
+            text_sections = [f'**{team_name}**']
+
+            if not len(transfers_out)+len(transfers_in) == 0:
+                transfers_out_str = ':x: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_out])
+                transfers_in_str = ':white_check_mark: '+' | '.join([self.players[player_id]['web_name'] for player_id in transfers_in])
+                text_sections.extend([transfers_out_str, transfers_in_str])
+            else:
+                text_sections.append('*No transfers in gameweek*')
+            
+            text_sections.append(f':regional_indicator_c: {self.players[captain]["web_name"]} (C), {self.players[vice_captain]["web_name"]} (VC)')
 
             if chip_values:
-                chip_str = '\n*{} active in {} gameweek*'.format(chip_values[0], chip_values[1])
-                text += chip_str
-        
+                chip_str = '*{} active in {} gameweek*'.format(chip_values[0], chip_values[1])
+                text_sections.append(chip_str)
+
+            text = '\n'.join(text_sections)
             transfers.append(text)
 
         if not transfers:
