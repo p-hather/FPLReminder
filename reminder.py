@@ -173,10 +173,6 @@ class FPLReminderBot:
 
             text = '\n'.join(text_sections)
             transfers.append(text)
-
-        if not transfers:
-            logging.info('No gameweek transfers found')
-            return
         
         transfers_str = '\n'.join(transfers)
         message = f":wave: Gameweek {self.current_gw} transfers\n{transfers_str}"
