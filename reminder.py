@@ -5,7 +5,7 @@ import pathlib
 import requests
 from datetime import datetime, timedelta, timezone
 from time import sleep
-from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.schedulers import blocking, SchedulerNotRunningError
 
 
 load_dotenv()
@@ -50,7 +50,7 @@ class FPLReminderBot:
         self.get_transfers_attempts = 0
         self.current_date = datetime.today().replace(tzinfo=self.local_tz)
         self.webhook_url = WEBHOOK_URL
-        self.scheduler = BlockingScheduler(timezone='Europe/London')
+        self.scheduler = blocking.BlockingScheduler(timezone='Europe/London')
 
     def get_deadlines(self):
         """GET data on all unfinished FPL events (gameweeks) from the API"""
@@ -96,8 +96,11 @@ class FPLReminderBot:
 
     def send_transfers(self):
         """Get Gameweek players transfer data for given FPL league ID, and send to the Discord webhook"""
-        self.scheduler.shutdown(wait=False)  # Shut down scheduler as not required from this point
-
+        try:
+            self.scheduler.shutdown(wait=False)  # Shut down scheduler as not required from this point
+        except SchedulerNotRunningError:
+            logging.info('No running scheduler to shut down')
+        
         self.get_transfers_attempts += 1
         logging.info(f'Attempting to fetch transfers data - attempt {self.get_transfers_attempts}/3')
 
